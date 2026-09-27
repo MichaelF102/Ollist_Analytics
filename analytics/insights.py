@@ -9,104 +9,93 @@ from utils.formatting import format_currency, format_number, format_percent, for
 
 def generate_sales_insights(kpis, monthly_df, weekday_df, payment_df, state_df, non_deliv_df):
     """Generates structured insights for Page 1 — Executive Overview."""
+    from analytics.sales import (
+        get_monthly_statistics,
+        get_weekday_statistics,
+        get_payment_statistics,
+        get_state_revenue_statistics,
+        get_order_status_statistics
+    )
+    
     insights = {}
     
-    # 1. Executive Summary
+    m_stats = get_monthly_statistics(monthly_df)
+    w_stats = get_weekday_statistics(weekday_df)
+    p_stats = get_payment_statistics(payment_df)
+    s_stats = get_state_revenue_statistics(state_df, total_revenue=kpis.get('total_revenue'))
+    o_stats = get_order_status_statistics(non_deliv_df)
+    
     tot_orders = kpis['total_orders']
     tot_rev = kpis['total_revenue']
     uniq_cust = kpis['unique_customers']
     aov = kpis['aov']
     prods_sold = kpis['products_sold']
     
+    # 1. Executive Summary
     insights['executive_summary'] = {
-        'title': 'Executive Business Performance Summary',
-        'finding': 'Strong transactional throughput dominated by unique first-time buyers with multi-item baskets.',
-        'evidence': f"The business processed {format_number(tot_orders)} orders generating {format_currency(tot_rev)} in gross merchandise value across {format_number(uniq_cust)} unique customers (AOV: {format_currency(aov)}, Products Sold: {format_number(prods_sold)}).",
-        'interpretation': 'Customer volume closely tracks order volume, indicating that revenue expansion is currently powered primarily by customer acquisition rather than repeat transactions.',
-        'business_implication': 'High customer acquisition volume without commensurate repeat ordering means margin is continuously spent on top-of-funnel customer capture.',
-        'investigate': 'Determine customer acquisition cost (CAC) efficiency and evaluate post-purchase retention loops to boost customer lifetime value (LTV).'
+        'title': 'Executive Takeaway',
+        'finding': f"Across the current selection, Olist records approximately {format_number(tot_orders)} orders and {format_currency(tot_rev)} in revenue.",
+        'evidence': f"The business processed {format_number(tot_orders)} orders generating {format_currency(tot_rev)} in gross revenue across {format_number(uniq_cust)} unique customers (AOV: {format_currency(aov)}, Products Sold: {format_number(prods_sold)}). Order activity peaks during {m_stats['peak_order_month']}, while {w_stats['highest_day']} has the highest weekday volume.",
+        'interpretation': f"{p_stats['largest_method']} represents the largest share of payment value at {p_stats['largest_share']:.1f}%. Geographically, {s_stats['top_state']} contributes the highest revenue ({s_stats['top_share']:.1f}% share). The order-status distribution indicates that '{o_stats['largest_status']}' is the largest operational non-delivered category.",
+        'business_implication': 'Commercial growth is primarily volume-driven with distinct geographic and payment concentration that provides clear targets for operational and marketing resource allocation.'
     }
     
     # 2. Monthly Orders & Payment Value
     if not monthly_df.empty:
-        peak_order_row = monthly_df.loc[monthly_df['orders_count'].idxmax()]
-        lowest_order_row = monthly_df.loc[monthly_df['orders_count'].idxmin()]
-        corr = monthly_df['orders_count'].corr(monthly_df['revenue'])
         insights['monthly_trend'] = {
             'title': 'Monthly Orders & Payment Value',
-            'finding': 'Orders and gross revenue display a synchronized upward expansion across the observation period.',
-            'evidence': f"Peak order activity reached {format_number(peak_order_row['orders_count'])} orders ({format_currency(peak_order_row['revenue'])}) in {peak_order_row['year_month']}, up from {format_number(lowest_order_row['orders_count'])} in early months. Revenue correlation with order volume is strong (r = {corr:.2f}).",
-            'interpretation': 'Revenue growth is substantially associated with increasing transaction count rather than isolated large-ticket transaction outliers.',
-            'business_implication': 'Operational logistics, warehouse fulfillment, and carrier partner capacity must scale directly with projected transaction volume surges during peak quarters.',
-            'investigate': 'Analyze whether peak volume corresponds to promotional calendar events (e.g. Black Friday) and assess carrier on-time resilience during high-volume months.'
+            'finding': f"Order activity changes substantially across the observation period, with the strongest activity occurring during {m_stats['peak_order_month']}.",
+            'evidence': f"The highest monthly order volume was {format_number(m_stats['peak_orders'])} orders in {m_stats['peak_order_month']}, while the highest payment value was {format_currency(m_stats['peak_revenue'])} in {m_stats['peak_rev_month']}. Across the period, {format_number(tot_orders)} orders generated {format_currency(tot_rev)}.",
+            'interpretation': f"The relationship between order volume and payment value helps distinguish growth driven by transaction frequency from changes in basket value. Monthly order volume and payment value show a {m_stats['corr_strength']} relationship (r = {m_stats['correlation']:.2f}).",
+            'business_implication': 'These patterns can support demand planning, inventory preparation and operational capacity planning around high-volume periods.'
         }
     else:
         insights['monthly_trend'] = _empty_insight('Monthly Orders & Payment Value')
         
     # 3. Orders by Day of Week
     if not weekday_df.empty:
-        top_day = weekday_df.sort_values('orders_count', ascending=False).iloc[0]
-        bot_day = weekday_df.sort_values('orders_count', ascending=True).iloc[0]
-        weekday_sum = weekday_df[weekday_df['weekday'].isin(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'])]['orders_count'].sum()
-        total_week = weekday_df['orders_count'].sum()
-        weekday_share = (weekday_sum / total_week * 100) if total_week > 0 else 0
-        
         insights['orders_by_weekday'] = {
             'title': 'Orders by Day of Week',
-            'finding': 'Purchasing behavior is concentrated heavily during business weekdays, peaking at the start of the week.',
-            'evidence': f"{top_day['weekday']} records the highest volume ({format_number(top_day['orders_count'])} orders, {top_day['share_pct']:.1f}% share), whereas {bot_day['weekday']} drops to {format_number(bot_day['orders_count'])}. Overall weekdays represent {weekday_share:.1f}% of total demand.",
-            'interpretation': 'Customers demonstrate a systematic preference for initiating purchases during workdays, with weekend browsing tapering significantly.',
-            'business_implication': 'Promotional campaign launches, push notifications, seller operational fulfillment teams, and customer-support staffing should align with the heavy Monday–Wednesday demand surge.',
-            'investigate': 'Evaluate carrier pickup schedules on Mondays to confirm that warehouse dispatches keep pace with early-week volume spikes.'
+            'finding': f"Orders are concentrated around {w_stats['highest_day']}, recording approximately {format_number(w_stats['highest_orders'])} orders.",
+            'evidence': f"{w_stats['highest_day']} records the highest volume ({format_number(w_stats['highest_orders'])} orders, {w_stats['highest_share']:.1f}% share), whereas {w_stats['lowest_day']} records the lowest order volume at approximately {format_number(w_stats['lowest_orders'])} orders ({w_stats['lowest_share']:.1f}% share). Overall weekdays represent {w_stats['weekday_share']:.1f}% of total demand.",
+            'interpretation': 'The observed distribution shows a clear difference between weekday and weekend ordering activity, suggesting that customer purchasing is heavily workday-centric.',
+            'business_implication': 'This type of pattern can be useful for planning customer support, marketing campaigns, inventory availability and operational capacity.'
         }
     else:
         insights['orders_by_weekday'] = _empty_insight('Orders by Day of Week')
         
     # 4. Payment Method Distribution
     if not payment_df.empty:
-        dominant_pmt = payment_df.iloc[0]
-        second_pmt = payment_df.iloc[1] if len(payment_df) > 1 else dominant_pmt
         insights['payment_distribution'] = {
             'title': 'Payment Method Distribution',
-            'finding': f"{dominant_pmt['payment_type_clean']} constitutes the vast majority of transaction volume, followed by {second_pmt['payment_type_clean']}.",
-            'evidence': f"{dominant_pmt['payment_type_clean']} captures {format_currency(dominant_pmt['total_value'])} ({dominant_pmt['share_pct']:.1f}% share). {second_pmt['payment_type_clean']} generates {format_currency(second_pmt['total_value'])} ({second_pmt['share_pct']:.1f}%).",
-            'interpretation': 'The marketplace depends heavily on digital card processing, while Brazilian bank slips (Boleto) maintain a vital secondary role for cash/unbanked segments.',
-            'business_implication': 'Payment gateway processing reliability and card authorization checkout friction directly govern the vast majority of revenue flow.',
-            'investigate': 'Assess checkout drop-off rates and payment processing authorization fees across different credit card acquirers.'
+            'finding': f"{p_stats['largest_method']} dominates the payment mix, representing approximately {p_stats['largest_share']:.1f}% of payment value.",
+            'evidence': f"{p_stats['largest_method']} captures {format_currency(p_stats['largest_value'])} ({p_stats['largest_share']:.1f}% of total payment value). {p_stats['second_method']} represents approximately {p_stats['second_share']:.1f}% ({format_currency(p_stats['second_value'])}). Total payment value across all instruments is {format_currency(p_stats['total_value'])}.",
+            'interpretation': 'This indicates that payment value is concentrated around a relatively small number of payment methods, with credit processing representing the primary transaction channel.',
+            'business_implication': 'Payment gateway processing reliability, transaction authorization rates, and checkout settlement terms directly govern the vast majority of revenue flow.'
         }
     else:
         insights['payment_distribution'] = _empty_insight('Payment Method Distribution')
         
     # 5. Revenue by Customer State
     if not state_df.empty:
-        top_state = state_df.iloc[0]
-        top3_share = state_df.head(3)['share_pct'].sum()
         insights['revenue_by_state'] = {
             'title': 'Revenue Concentration by Customer State',
-            'finding': f"Geographic revenue is highly concentrated in southeastern commercial hubs, led predominantly by {top_state['customer_state']}.",
-            'evidence': f"{top_state['customer_state']} generates {format_currency(top_state['total_revenue'])} ({top_state['share_pct']:.1f}% of top 10 revenue). The top 3 states (SP, RJ, MG) account for {top3_share:.1f}% of total demand.",
-            'interpretation': 'Market traction is heavily skewed toward southeastern metropolitan regions with mature digital infrastructure and higher purchasing power.',
-            'business_implication': 'Regional marketing efficiency and fulfillment center placement are crucial in São Paulo and adjacent states to safeguard delivery economics.',
-            'investigate': 'Examine regional shipping freight costs to determine whether high shipping fees suppress demand in North and Northeast states.'
+            'finding': f"{s_stats['top_state']} is the largest revenue-generating state, contributing approximately {format_currency(s_stats['top_revenue'])} in revenue.",
+            'evidence': f"{s_stats['top_state']} generates {format_currency(s_stats['top_revenue'])} ({s_stats['top_share']:.1f}% of total revenue). It is followed by {s_stats['top2_state']} and {s_stats['top3_state']}. The top 10 states account for approximately {s_stats['top10_share']:.1f}% of total revenue.",
+            'interpretation': f"Revenue is not evenly distributed geographically. The top states account for a substantial share of the observed revenue, with {s_stats['top_state']} demonstrating commanding commercial dominance.",
+            'business_implication': f"Regional marketing efficiency, fulfillment center placement, and carrier routing are crucial in {s_stats['top_state']} and adjacent states to safeguard delivery economics."
         }
     else:
         insights['revenue_by_state'] = _empty_insight('Revenue Concentration by Customer State')
         
     # 6. Non-Delivered Orders by Status
     if not non_deliv_df.empty:
-        largest_status = non_deliv_df.iloc[0]
-        cancelled_orders = non_deliv_df[non_deliv_df['order_status'] == 'canceled']
-        canc_cnt = cancelled_orders['count'].values[0] if not cancelled_orders.empty else 0
-        canc_rev = cancelled_orders['revenue_at_risk'].values[0] if not cancelled_orders.empty else 0
-        tot_risk = non_deliv_df['revenue_at_risk'].sum()
-        
         insights['non_delivered_orders'] = {
-            'title': 'Non-Delivered Orders by Operational Status',
-            'finding': 'Non-delivered orders are divided between active transit pipelines and revenue leakage stages.',
-            'evidence': f"The largest non-delivered cohort is '{largest_status['order_status']}' ({format_number(largest_status['count'])} orders, {largest_status['share_pct']:.1f}%). Canceled and unavailable orders represent {format_number(canc_cnt)} orders and {format_currency(canc_rev)} in potential lost revenue.",
-            'interpretation': 'While shipped orders represent healthy in-flight logistics, canceled and unavailable orders indicate inventory stockouts or buyer frustration before carrier handoff.',
-            'business_implication': 'Streamlining inventory synchronization with marketplace sellers could reduce unfulfillable orders and retain gross revenue.',
-            'investigate': 'Audit seller fulfillment cancellation reasons to identify whether out-of-stock items or delayed confirmation triggers cancellations.'
+            'title': 'Order Status Distribution (Non-Delivered)',
+            'finding': f"Not every order progresses to the same operational state; the largest segment is '{o_stats['largest_status']}'.",
+            'evidence': f"The largest non-delivered cohort is '{o_stats['largest_status']}' with {format_number(o_stats['largest_count'])} orders ({o_stats['largest_share']:.1f}%). Cancelled orders account for {format_number(o_stats['cancelled_count'])} orders ({format_currency(o_stats['cancelled_revenue'])}), while unavailable items represent {format_number(o_stats['unavailable_count'])} orders ({format_currency(o_stats['unavailable_revenue'])}).",
+            'interpretation': 'The non-delivered order population contains multiple operational stages. In-transit orders represent active fulfillment pipeline, while cancelled and unavailable orders represent potential revenue leakage.',
+            'business_implication': 'Streamlining inventory synchronization with marketplace sellers could reduce unfulfillable orders and retain gross revenue.'
         }
     else:
         insights['non_delivered_orders'] = _empty_insight('Non-Delivered Orders')
@@ -115,98 +104,130 @@ def generate_sales_insights(kpis, monthly_df, weekday_df, payment_df, state_df, 
 
 def generate_customer_insights(kpis, state_cust_df, city_cust_df, freq_df):
     """Generates structured insights for Page 2 — Customers, Products & Geography."""
+    from analytics.customers import (
+        get_customer_geography_statistics,
+        get_city_concentration_statistics,
+        get_order_frequency_statistics
+    )
     insights = {}
     
-    # 1. Customer Retention Alert
-    uniq_c = kpis['unique_customers']
-    rep_c = kpis['repeat_customers']
-    rep_r = kpis['repeat_rate']
+    geo_stats = get_customer_geography_statistics(state_cust_df, total_customers=kpis.get('unique_customers'))
+    city_stats = get_city_concentration_statistics(city_cust_df, total_customers=kpis.get('unique_customers'))
+    freq_stats = get_order_frequency_statistics(freq_df)
+    
+    # 1. Customer Retention Finding
+    uniq_c = kpis.get('unique_customers', 0)
+    rep_c = kpis.get('repeat_customers', 0)
+    rep_r = kpis.get('repeat_rate', 0.0)
     
     insights['customer_retention'] = {
-        'title': 'Customer Retention & Re-order Dynamics',
-        'finding': 'The customer base exhibits extreme single-purchase concentration with minimal repeat ordering.',
-        'evidence': f"Out of {format_number(uniq_c)} unique customers, only {format_number(rep_c)} have placed more than one order, establishing a repeat customer rate of {rep_r:.2f}%.",
-        'interpretation': 'The platform functions predominantly as a customer acquisition portal rather than an ecosystem with organic loyalty loops.',
-        'business_implication': 'The business operates under continuous customer acquisition cost pressure; establishing retention strategies offers a high-leverage growth avenue.',
-        'investigate': 'Evaluate repurchase intervals, product category consumables (e.g., pet supplies, cosmetics), and lifecycle email re-engagement performance.'
+        'title': 'Customer Retention & Repeat Purchasing Finding',
+        'finding': 'The customer base is predominantly composed of customers with limited observed repeat purchasing in the current selection.',
+        'evidence': f"Approximately {rep_r:.1f}% of unique customers ({format_number(rep_c)} repeat buyers out of {format_number(uniq_c)} unique buyers) meet the dashboard's repeat-customer definition of placing two or more orders.",
+        'interpretation': 'From a business analytics perspective, this provides an important area for investigating customer retention and repeat purchasing behavior.',
+        'business_implication': 'The observed repeat-purchase level provides an important benchmark for customer lifetime value analysis and post-purchase engagement evaluation.',
+        'investigate': 'Evaluate repurchase intervals and product category consumables to identify whether repeat ordering is category-specific.'
     }
     
-    # 2. Customers by Number of Orders
-    if not freq_df.empty:
-        one_order = freq_df[freq_df['frequency_bucket'] == '1 Order'].iloc[0]
-        insights['order_frequency'] = {
-            'title': 'Customer Order Frequency Distribution',
-            'finding': 'Customer volume drops exponentially beyond the initial transaction.',
-            'evidence': f"{format_number(one_order['customer_count'])} customers ({one_order['share_pct']:.1f}%) placed exactly 1 order, while 3+ orders account for less than 1% of the buyer base.",
-            'interpretation': 'Observed purchasing behavior reflects high transaction friction or one-off discovery journeys without habituation.',
-            'business_implication': 'Introduce post-purchase loyalty credits, tiered loyalty perks, or subscription replenishment for repeat-oriented product lines.',
-            'investigate': 'Survey single-order customers who gave 5-star reviews to determine why high satisfaction did not translate into a second purchase.'
-        }
-    else:
-        insights['order_frequency'] = _empty_insight('Order Frequency Distribution')
-        
-    # 3. Top Cities & State Concentration
-    if not city_cust_df.empty:
-        top_city = city_cust_df.iloc[0]
-        second_city = city_cust_df.iloc[1] if len(city_cust_df) > 1 else top_city
-        city_ratio = (top_city['customer_count'] / second_city['customer_count']) if second_city['customer_count'] > 0 else 1.0
-        
-        insights['city_concentration'] = {
-            'title': 'Metropolitan Customer Concentration',
-            'finding': f"{top_city['customer_city']} represents an overwhelming customer concentration, exceeding the runner-up city by more than {city_ratio:.1f}x.",
-            'evidence': f"{top_city['customer_city']} accounts for {format_number(top_city['customer_count'])} unique customers, followed by {second_city['customer_city']} ({format_number(second_city['customer_count'])} customers).",
-            'interpretation': 'Customer acquisition is concentrated in top-tier urban centers with dense digital penetration and established logistics networks.',
-            'business_implication': 'Last-mile same-day and next-day delivery networks should be piloted first in São Paulo and Rio de Janeiro to maximize competitive advantage.',
-            'investigate': 'Compare delivery promise times and shipping cost competitiveness between São Paulo and secondary state capitals.'
-        }
-    else:
-        insights['city_concentration'] = _empty_insight('Metropolitan Customer Concentration')
-        
+    # 2. Geographic Distribution by State (Visual 1)
+    top_3_states_str = ", ".join(geo_stats['top3_states']) if geo_stats['top3_states'] else "N/A"
+    insights['geographic_distribution'] = {
+        'title': 'Geographic Customer Distribution Across States',
+        'finding': 'Customer density is distributed across Brazilian states but shows strong concentration in major commercial centers.',
+        'evidence': f"{geo_stats['top_state']} has the highest number of customers with approximately {format_number(geo_stats['top_customers'])} buyers ({geo_stats['top_share']:.1f}% share). The top 3 states ({top_3_states_str}) account for approximately {geo_stats['top3_share']:.1f}% of total customers.",
+        'interpretation': 'The customer base aligns with national population density and digital commerce infrastructure rather than being uniformly dispersed.',
+        'business_implication': 'This complements the revenue-by-state analysis from Page 1, confirming where the customer base itself resides for logistics and marketing planning.',
+        'investigate': 'Compare per-capita customer penetration between southeastern metropolitan states and emerging northern regions.'
+    }
+    
+    # 3. Top Cities & Metropolitan Concentration (Visual 2)
+    insights['city_concentration'] = {
+        'title': 'Metropolitan Customer Concentration',
+        'finding': 'When drilling down from states to cities, customer activity is concentrated in major urban centers.',
+        'evidence': f"{city_stats['top_city']} is the largest customer market with approximately {format_number(city_stats['top_city_customers'])} customers, followed by {city_stats['second_city']} ({format_number(city_stats['second_city_customers'])} customers), creating a gap of approximately {format_number(city_stats['gap_top2'])} customers. Top 10 cities represent {city_stats['top10_share']:.1f}% of buyers.",
+        'interpretation': 'Customer demand is clustered in high-density urban areas with established delivery infrastructure and digital penetration.',
+        'business_implication': 'This geographic concentration can be useful when analyzing market segmentation, logistics coverage, and localized promotional campaigns.',
+        'investigate': 'Analyze delivery fulfillment speeds and freight costs in secondary cities outside the top metropolitan centers.'
+    }
+    
+    # 4. Customers by Number of Orders (Visual 5)
+    insights['order_frequency'] = {
+        'title': 'Customer Purchase Frequency Distribution',
+        'finding': 'The customer base is predominantly composed of one-time purchasers in the current dataset.',
+        'evidence': f"Approximately {format_number(freq_stats['one_order_count'])} customers ({freq_stats['one_order_share']:.1f}%) have placed one order, while {format_number(freq_stats['repeat_count'])} customers ({freq_stats['repeat_share']:.1f}%) have placed two or more orders. Customers with 3+ orders represent {freq_stats['three_plus_share']:.1f}% of the base.",
+        'interpretation': 'This distribution explains the difference between the total unique-customer count and the repeat-customer count shown in the KPI cards.',
+        'business_implication': 'This provides a clear quantitative baseline for investigating repeat purchasing behavior and customer retention potential.',
+        'investigate': 'Examine repeat purchase rates among customer cohorts purchasing high-frequency consumables vs durable home goods.'
+    }
+    
     return insights
 
-def generate_product_insights(cat_perf_df, cat_region_df):
+def generate_product_insights(cat_perf_df, cat_region_df, table_df=None):
     """Generates structured insights for Page 2 — Product Categories."""
+    from analytics.products import (
+        get_category_statistics,
+        get_category_region_statistics,
+        get_category_comparison_statistics
+    )
     insights = {}
     
-    # 1. Product Category Performance
-    if not cat_perf_df.empty:
-        top_cat = cat_perf_df.iloc[0]
-        top3_prods = cat_perf_df.head(3)['products_sold'].sum()
-        tot_prods = cat_perf_df['products_sold'].sum()
-        top3_share = (top3_prods / tot_prods * 100) if tot_prods > 0 else 0
-        
-        insights['category_performance'] = {
-            'title': 'Category Sales Volume & Concentration',
-            'finding': f"Product demand is concentrated in key lifestyle and personal goods categories, led by {top_cat['category_clean']}.",
-            'evidence': f"{top_cat['category_clean']} leads with {format_number(top_cat['products_sold'])} items sold ({top_cat['share_pct']:.1f}% share), followed by Health & Beauty and Sports & Leisure. The top 3 categories constitute {top3_share:.1f}% of volume.",
-            'interpretation': 'Everyday personal and home care products demonstrate the highest velocity and broadest customer appeal.',
-            'business_implication': 'Merchandising and promotional placement should safeguard inventory depth and seller price competitiveness in these bellwether categories.',
-            'investigate': 'Assess stock-out frequency and price elasticities within Bed & Bath & Table and Health & Beauty.'
-        }
-    else:
-        insights['category_performance'] = _empty_insight('Category Sales Volume')
-        
-    # 2. Regional Category Variation (Matrix)
+    cat_stats = get_category_statistics(cat_perf_df)
+    region_stats = get_category_region_statistics(cat_region_df)
+    
+    # 1. Product Category Performance (Visual 4)
+    insights['category_performance'] = {
+        'title': 'Product Category Sales Volume',
+        'finding': f"{cat_stats['top_category']} leads the marketplace in products sold, with the top 3 categories generating {cat_stats['top3_share']:.1f}% of volume.",
+        'evidence': f"{cat_stats['top_category']} accounts for approximately {format_number(cat_stats['top_units'])} units sold ({cat_stats['top_share']:.1f}% share), followed by {cat_stats['second_category']} ({format_number(cat_stats['second_units'])} units) and {cat_stats['third_category']} ({format_number(cat_stats['third_units'])} units).",
+        'interpretation': 'Product volume and revenue are not necessarily identical; high-velocity categories may carry lower average selling prices.',
+        'business_implication': 'Distinguishing unit volume from sales value prevents over-relying on volume alone when planning inventory and merchandising allocations.',
+        'investigate': 'Cross-reference category unit volume against average ticket size in the detailed performance matrix.'
+    }
+    
+    # 2. Regional Category Variation Matrix (Visual 3)
     if not cat_region_df.empty:
-        # Find category with largest difference across regions
-        row_diff = cat_region_df.max(axis=1) - cat_region_df.min(axis=1)
-        max_diff_cat = row_diff.idxmax()
-        max_diff_val = row_diff.max()
-        max_reg = cat_region_df.loc[max_diff_cat].idxmax()
-        min_reg = cat_region_df.loc[max_diff_cat].idxmin()
-        
         insights['regional_category_variation'] = {
-            'title': 'Regional Demand Variation Across Categories',
-            'finding': f"Regional preferences reveal notable differences, with '{max_diff_cat}' showing the widest geographic spread.",
-            'evidence': f"'{max_diff_cat}' exhibits a {max_diff_val:.1f} percentage-point gap between its highest-share region ({max_reg}: {cat_region_df.loc[max_diff_cat, max_reg]:.1f}%) and lowest ({min_reg}: {cat_region_df.loc[max_diff_cat, min_reg]:.1f}%).",
-            'interpretation': 'Regional climate, economic demographics, and localized lifestyle preferences influence product category velocity across Brazilian macro-regions.',
-            'business_implication': 'Avoid nationwide one-size-fits-all digital marketing; tailor homepage category banners and localized discounts based on regional affinity.',
-            'investigate': 'Examine regional shipping weight surcharges that may disadvantage bulky home furniture in distant regions.'
+            'title': 'Regional Product Category Preference Mix',
+            'finding': 'The product category mix is not identical across all regions, reflecting measurable regional variation.',
+            'evidence': f"'{region_stats['max_variation_cat']}' displays the largest regional spread with a {region_stats['max_variation_val']:.1f} percentage-point gap between {region_stats['max_variation_high_reg']} ({region_stats['max_variation_high_val']:.1f}%) and {region_stats['max_variation_low_reg']} ({region_stats['max_variation_low_val']:.1f}%). The largest single category-region share is {region_stats['largest_cat']} in {region_stats['largest_region']} ({region_stats['largest_share']:.1f}%).",
+            'interpretation': 'Rather than treating Brazil as one homogeneous market, the data suggests that regional differences in product mix should be considered when analyzing customer demand.',
+            'business_implication': 'Regional category variations can support localized merchandising, regional promotion planning, and regional warehouse stock positioning.',
+            'investigate': 'Assess whether freight costs or climate differences influence category mix across macro-regions.'
         }
     else:
         insights['regional_category_variation'] = _empty_insight('Regional Demand Variation')
         
+    # 3. Product Category Detailed Performance Table (Visual 6)
+    if table_df is not None and not table_df.empty:
+        comp_stats = get_category_comparison_statistics(table_df)
+        insights['category_table_summary'] = {
+            'title': 'Multi-Metric Category Evaluation',
+            'finding': 'Category performance varies substantially across metrics: unit volume leaders do not necessarily drive the highest revenue or basket sizes.',
+            'evidence': f"{comp_stats['highest_sales_cat']} leads in total sales value ({format_currency(comp_stats['highest_sales_val'])}), {comp_stats['highest_units_cat']} leads in unit volume ({format_number(comp_stats['highest_units_val'])} units), and {comp_stats['highest_aov_cat']} delivers the highest average sales per order ({format_currency(comp_stats['highest_aov_val'])}).",
+            'interpretation': 'Evaluating categories across sales value, volume, and order frequency prevents one-dimensional assessment of product portfolio strength.',
+            'business_implication': 'Commercial strategies should pair volume-driving categories (customer acquisition) with high-AOV categories (monetary value expansion).',
+            'investigate': 'Evaluate order-item multiplicity and bundling opportunities for high-AOV categories.'
+        }
+    else:
+        insights['category_table_summary'] = _empty_insight('Multi-Metric Category Evaluation')
+        
     return insights
+
+def generate_customer_product_summary(kpis, geo_stats, city_stats, cat_stats, freq_stats, region_stats):
+    """Generates dynamic page-level executive summary for Page 2."""
+    uniq_fmt = format_number(kpis.get('unique_customers', 0))
+    rep_rate = kpis.get('repeat_rate', 0.0)
+    
+    return (
+        f"The current selection contains approximately {uniq_fmt} unique customers, of whom "
+        f"{rep_rate:.1f}% meet the repeat-customer definition. Customer activity is concentrated in "
+        f"{geo_stats['top_state']} ({format_number(geo_stats['top_customers'])} buyers) and "
+        f"{city_stats['top_city']} ({format_number(city_stats['top_city_customers'])} buyers). "
+        f"{cat_stats['top_category']} leads product volume with {format_number(cat_stats['top_units'])} products sold, "
+        f"while regional category shares reveal distinct demand patterns across Brazilian macro-regions. "
+        f"The customer-order distribution is dominated by {freq_stats['one_order_share']:.1f}% one-order customers, "
+        f"establishing a clear empirical foundation for customer retention analysis."
+    )
 
 def generate_delivery_insights(kpis, seller_df, heatmap_df, state_ontime_df, route_insights):
     """Generates structured insights for Page 3 — Delivery Performance."""

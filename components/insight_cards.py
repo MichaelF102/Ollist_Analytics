@@ -33,19 +33,20 @@ def render_insight_card(insight_dict, card_type="default"):
             </span>
             <span style="font-size: 0.7rem; color: #64748b; font-weight: 500;">AUTOMATED INSIGHT</span>
         </div>
+        <div style="font-size: 0.68rem; font-weight: 700; color: #818cf8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem;">💡 Key Finding</div>
         <div class="insight-finding">
             {finding}
         </div>
         <div class="insight-evidence">
-            <strong style="color: #38bdf8;">DATA EVIDENCE:</strong> {evidence}
+            <strong style="color: #38bdf8;">📌 EVIDENCE:</strong> {evidence}
         </div>
         <div class="insight-grid">
             <div>
-                <div class="insight-block-label">🧠 Business Interpretation</div>
+                <div class="insight-block-label">🔎 Interpretation</div>
                 <div class="insight-block-content">{interpretation}</div>
             </div>
             <div>
-                <div class="insight-block-label">⚡ Operational Implication</div>
+                <div class="insight-block-label">💼 Business Implication</div>
                 <div class="insight-block-content">{implication}</div>
             </div>
         </div>
